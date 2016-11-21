@@ -57,7 +57,7 @@ struct u25{
 #define BLOCK_SIZE 512
 #define INODE_SIZE 32
 
-#define FILE_MODE 0777
+#define FILE_MODE S_IRUSR | S_IWUSR | S_IXUSR
 
 int fileDescriptor = -1;
 struct SuperBlock superBlock = {0, 0, 0, {0}, 0, {0}, 0, 0, 0, {0}};
@@ -115,6 +115,8 @@ int removeV6(int inodeId);
 int getV6Path(int inodeId, char* path);
 int getV6Name(int inodeId, char* name);
 int getV6Size(int inodeId);
+int getV6Type(int inodeId);
+int removeV6Dir(int inodeId);
 
 //user level
 int loadFile(char* args[]);
@@ -1106,6 +1108,80 @@ int writeV6(int inodeId, void* buff, size_t size, int offset) {
 	return 0;
 }
 
+int removeV6(int inodeId) {
+	struct INode inode;
+	int inodeOffset = 2 * BLOCK_SIZE + (inodeId - 1) * INODE_SIZE;
+
+	//load inode from the file
+	lseek(fileDescriptor, inodeOffset, SEEK_SET);
+	read(fileDescriptor, &inode, INODE_SIZE);
+
+	unsigned long i_size = getV6Size(inodeId);
+
+	int i, k;
+	int countSize = 0;
+	unsigned short blockId, indirectBlockId;
+
+	if((inode.i_flags & I_LARGE_FILE) == I_LARGE_FILE) {
+		for(i = 0; i < 263; i++) {
+			if(i < 7) {
+				indirectBlockId = inode.i_addr[i];
+			}
+			else if(inode.i_addr[7] != 0) {
+				indirectBlockId = getIndirectBlockAddress(inode.i_addr[7], i - 7);
+			}
+			else {
+				releaseINode(inodeId);
+				return 0;
+			}
+
+			if(indirectBlockId != 0) {
+				for(k = 0; k < 256; k++) {
+					blockId = getIndirectBlockAddress(indirectBlockId, k);
+					if(blockId != 0) {
+						releaseBlock(blockId);
+					}
+
+					countSize += 512;
+
+					if(countSize >= i_size) {
+						if(inode.i_addr[7] != 0) {
+							releaseBlock(inode.i_addr[7]);
+						}
+						releaseBlock(indirectBlockId);
+						releaseINode(inodeId);
+						return 0;
+					}
+				}
+
+				releaseBlock(indirectBlockId);
+			}
+			else {
+				countSize += 131072;
+
+				if(countSize >= i_size) {
+					if(inode.i_addr[7] != 0) {
+						releaseBlock(inode.i_addr[7]);
+					}
+					releaseINode(inodeId);
+					return 0;
+				}
+			}
+		}
+	}
+	else {
+		for(i = 0; i < 8; i++) {
+			blockId = inode.i_addr[i];
+			if(blockId != 0) {
+				releaseBlock(blockId);
+			}
+		}
+	}
+
+	releaseINode(inodeId);
+	return 0;
+}
+
 int getV6Path(int inodeId, char* path) {
 	if(inodeId == 1) {
 		sprintf(path, "/");
@@ -1173,6 +1249,37 @@ int getV6Size(int inodeId) {
 	u25_size.extra25 = (inode.i_flags & I_SIZE25BIT) ? 1 : 0;
 
 	return u25ToLong(u25_size);
+}
+
+int getV6Type(int inodeId) {
+	struct INode inode;
+	int inodeOffset = 2 * BLOCK_SIZE + (inodeId - 1) * INODE_SIZE;
+
+	//load inode from the file
+	lseek(fileDescriptor, inodeOffset, SEEK_SET);
+	read(fileDescriptor, &inode, INODE_SIZE);
+
+	return inode.i_flags & I_FILE_TYPE;
+}
+
+int removeV6Dir(int inodeId) {
+	int i_size = getV6Size(inodeId);
+	int pointer;
+	unsigned short temp;
+
+	for(pointer = 32; pointer < i_size; pointer += 16) {
+		readV6(inodeId, &temp, 2, pointer);
+		if(temp != 0) {
+			if(getV6Type(temp) == I_DIRECTORY) {
+				removeV6Dir(temp);
+			}
+			else {
+				removeV6(temp);
+			}
+		}
+	}
+
+	removeV6(inodeId);
 }
 
 //open file
@@ -1259,7 +1366,7 @@ int copyIn(char* args[]) {
 
 	int externalFileDescriptor = -1;
 
-	externalFileDescriptor = open(args[1], O_WRONLY, FILE_MODE);
+	externalFileDescriptor = open(args[1], O_RDONLY, FILE_MODE);
 
 	if(externalFileDescriptor == -1) {
 		printf("fail to find external file\n");
@@ -1374,6 +1481,46 @@ int makeDirectory(char* args[]) {
 }
 
 int removeFile(char* args[]) {
+	if(args[1] == NULL) {
+		printf("fail to find argument\n");
+		return -1;
+	}
+
+	char* str = args[1];
+	int i_size = getV6Size(inodeIdOfurrentDirectory);
+	char nameStr[15] = {0};
+	int pointer;
+	char findFlag = 0;
+
+	for(pointer = 2; pointer < i_size; pointer += 16) {
+		readV6(inodeIdOfurrentDirectory, nameStr, 14, pointer);
+		if(strcmp(str,nameStr) == 0) {
+			findFlag = 1;
+			break;
+		}
+	}
+
+	//if cannot find the file, return -1
+	if(!findFlag) {
+		printf("fail to find the file or directory\n");
+		return -1;
+	}
+
+	unsigned short resInodeId;
+	pointer -= 2;
+
+	readV6(inodeIdOfurrentDirectory, &resInodeId, 2, pointer);
+
+	char empty[16] = {0};
+	writeV6(inodeIdOfurrentDirectory, empty, 16, pointer);
+
+	if(getV6Type(resInodeId) == I_DIRECTORY) {
+		removeV6Dir(resInodeId);
+	}
+	else {
+		removeV6(resInodeId);
+	}
+
 	return 0;
 }
 
@@ -1428,12 +1575,12 @@ int show(char* args[]) {
 		printf("s_fsize: %d\n", superBlock.s_fsize);
 		printf("s_nfree: %d\n", superBlock.s_nfree);
 		printf("s_free: ");
-		for(i = 0; i < 100; i++) {
+		for(i = 0; i < superBlock.s_nfree; i++) {
 			printf("%d ", superBlock.s_free[i]);
 		}
 		printf("\ns_ninode: %d\n", superBlock.s_ninode);
 		printf("s_inode: ");
-		for(i = 0; i < 100; i++) {
+		for(i = 0; i < superBlock.s_ninode; i++) {
 			printf("%d ", superBlock.s_inode[i]);
 		}
 		printf("\ns_flock: %d\n", superBlock.s_flock);
