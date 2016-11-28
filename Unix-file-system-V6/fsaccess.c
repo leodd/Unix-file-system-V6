@@ -78,7 +78,7 @@ char* functionList[] = {
 	"ls"
 };
 
-#define FUNC_LIST_SIZE 11
+#define FUNC_LIST_SIZE sizeof(functionList) / sizeof(char*)
 
 //utils
 unsigned long u25ToLong(struct u25 val);
@@ -1108,6 +1108,25 @@ int writeV6(int inodeId, void* buff, size_t size, int offset) {
 	return 0;
 }
 
+void removeV6Recusive(int blockId, int depth) {
+	if(depth <= 0) {
+		releaseBlock(blockId);
+		return;
+	}
+
+	int i;
+	int indirectBlockId;
+
+	for(i = 0; i < 256; i++) {
+		indirectBlockId = getIndirectBlockAddress(blockId, i);
+		if(indirectBlockId != 0) {
+			removeV6Recusive(indirectBlockId, depth - 1);
+		}
+	}
+	
+	releaseBlock(blockId);
+}
+
 int removeV6(int inodeId) {
 	struct INode inode;
 	int inodeOffset = 2 * BLOCK_SIZE + (inodeId - 1) * INODE_SIZE;
@@ -1116,64 +1135,23 @@ int removeV6(int inodeId) {
 	lseek(fileDescriptor, inodeOffset, SEEK_SET);
 	read(fileDescriptor, &inode, INODE_SIZE);
 
-	unsigned long i_size = getV6Size(inodeId);
-
-	int i, k;
-	int countSize = 0;
-	unsigned short blockId, indirectBlockId;
+	int i;
 
 	if((inode.i_flags & I_LARGE_FILE) == I_LARGE_FILE) {
-		for(i = 0; i < 263; i++) {
-			if(i < 7) {
-				indirectBlockId = inode.i_addr[i];
+		for(i = 0; i < 7; i++) {
+			if(inode.i_addr[i] != 0) {
+				removeV6Recusive(inode.i_addr[i], 1);
 			}
-			else if(inode.i_addr[7] != 0) {
-				indirectBlockId = getIndirectBlockAddress(inode.i_addr[7], i - 7);
-			}
-			else {
-				releaseINode(inodeId);
-				return 0;
-			}
+		}
 
-			if(indirectBlockId != 0) {
-				for(k = 0; k < 256; k++) {
-					blockId = getIndirectBlockAddress(indirectBlockId, k);
-					if(blockId != 0) {
-						releaseBlock(blockId);
-					}
-
-					countSize += 512;
-
-					if(countSize >= i_size) {
-						if(inode.i_addr[7] != 0) {
-							releaseBlock(inode.i_addr[7]);
-						}
-						releaseBlock(indirectBlockId);
-						releaseINode(inodeId);
-						return 0;
-					}
-				}
-
-				releaseBlock(indirectBlockId);
-			}
-			else {
-				countSize += 131072;
-
-				if(countSize >= i_size) {
-					if(inode.i_addr[7] != 0) {
-						releaseBlock(inode.i_addr[7]);
-					}
-					releaseINode(inodeId);
-					return 0;
-				}
-			}
+		if(inode.i_addr[7] != 0) {
+			removeV6Recusive(inode.i_addr[7], 2);
 		}
 	}
 	else {
-		for(i = 0; i < 8; i++) {
-			blockId = inode.i_addr[i];
-			if(blockId != 0) {
-				releaseBlock(blockId);
+		for(i = 0; i < 7; i++) {
+			if(inode.i_addr[i] != 0) {
+				releaseBlock(inode.i_addr[i]);
 			}
 		}
 	}
@@ -1570,6 +1548,7 @@ int list(char* args[]) {
 int show(char* args[]) {
 	int i;
 
+	//show super block
 	if(args[1] != NULL && strcmp(args[1], "super") == 0) {
 		printf("s_isize: %d\n", superBlock.s_isize);
 		printf("s_fsize: %d\n", superBlock.s_fsize);
@@ -1588,10 +1567,11 @@ int show(char* args[]) {
 		printf("s_fmod: %d\n", superBlock.s_fmod);
 		printf("s_time: %d\n", superBlock.s_time[0] + superBlock.s_time[1] * 0200000);
 	}
+	//show inode
 	else if(args[1] != NULL && strcmp(args[1], "inode") == 0) {
 		if(args[2] != NULL) {
 			int inodeId = parseInt(args[2]);
-			if(inodeId != -1 && inodeId <= superBlock.s_isize * 16) {
+			if(inodeId >= 1 && inodeId <= superBlock.s_isize * 16) {
 				struct INode inode;
 				int inodeOffset = 2 * BLOCK_SIZE + (inodeId - 1) * INODE_SIZE;
 
