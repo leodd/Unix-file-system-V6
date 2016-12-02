@@ -247,6 +247,9 @@ int parseInt(char* str) {
 	return val;
 }
 
+//check if the name is available
+//an available name should be least than or equal to 14 characters
+//and should not contains \/:*?"<>|
 int checkNameAvailable(char* str) {
 	int pointer = 0;
 
@@ -484,6 +487,7 @@ int consumeBlock() {
 	return blockId;
 }
 
+//release the inode of given inode id
 int releaseINode(int inodeId) {
 	char empty[INODE_SIZE] = {0};
 	int offset = 2 * BLOCK_SIZE + (inodeId - 1) * INODE_SIZE;
@@ -502,6 +506,7 @@ int releaseINode(int inodeId) {
 	return 0;
 }
 
+//return a inode id
 int consumeINode() {
 	if(superBlock.s_ninode == 0 && fillINodeCacheArray() == -1) {
 		return -1;
@@ -518,6 +523,8 @@ int consumeINode() {
 	return inodeId;
 }
 
+//find a file or directory by the given path and return its inode id
+//return -1 if fail to find the file or directory
 int findV6FileAndDirectoryByName(char* str) {
 	if(str[0] == 0) {
 		return -1;
@@ -567,6 +574,7 @@ int findV6FileAndDirectoryByName(char* str) {
 	return inodeId;
 }
 
+//find the file or directory in the directory of given inode id
 int findV6ByNameInCertainDirectory(int inodeId, char* str) {
 	if(str[0] == 0 || inodeId < 1) {
 		return -1;
@@ -618,6 +626,7 @@ int findV6ByNameInCertainDirectory(int inodeId, char* str) {
 	return resInodeId;
 }
 
+//change the current directory to the given path
 int changeV6Directory(char* str) {
 	int inodeId;
 
@@ -647,6 +656,7 @@ int changeV6Directory(char* str) {
 	return 0;
 }
 
+//create a directory of given name in the directory of the given inode id
 int createV6Directory(int inodeId, char* str) {
 	if(str[0] == 0) {
 		return -1;
@@ -736,6 +746,7 @@ int createV6Directory(int inodeId, char* str) {
 	return newInodeId;
 }
 
+//create an empty file in the directory of the given inode id
 int createV6File(int inodeId, char* str) {
 	if(str[0] == 0) {
 		return -1;
@@ -1127,6 +1138,7 @@ void removeV6Recusive(int blockId, int depth) {
 	releaseBlock(blockId);
 }
 
+//release the given inode and the blocks that were allocated to it
 int removeV6(int inodeId) {
 	struct INode inode;
 	int inodeOffset = 2 * BLOCK_SIZE + (inodeId - 1) * INODE_SIZE;
@@ -1160,6 +1172,8 @@ int removeV6(int inodeId) {
 	return 0;
 }
 
+//get the directory path of given inode
+//this funtion cannot be used for getting path of file
 int getV6Path(int inodeId, char* path) {
 	if(inodeId == 1) {
 		sprintf(path, "/");
@@ -1185,6 +1199,7 @@ int getV6Path(int inodeId, char* path) {
 	return 0;
 }
 
+//get the name of directory
 int getV6Name(int inodeId, char* name) {
 	if(inodeId == 1) {
 		sprintf(name, "/");
@@ -1212,6 +1227,7 @@ int getV6Name(int inodeId, char* name) {
 	return 0;
 }
 
+//get the size of file or directory of given inode id
 int getV6Size(int inodeId) {
 	struct INode inode;
 	int inodeOffset = 2 * BLOCK_SIZE + (inodeId - 1) * INODE_SIZE;
@@ -1229,6 +1245,7 @@ int getV6Size(int inodeId) {
 	return u25ToLong(u25_size);
 }
 
+//get the type of the given inode
 int getV6Type(int inodeId) {
 	struct INode inode;
 	int inodeOffset = 2 * BLOCK_SIZE + (inodeId - 1) * INODE_SIZE;
@@ -1240,6 +1257,7 @@ int getV6Type(int inodeId) {
 	return inode.i_flags & I_FILE_TYPE;
 }
 
+//remove the directory and its content
 int removeV6Dir(int inodeId) {
 	int i_size = getV6Size(inodeId);
 	int pointer;
@@ -1336,6 +1354,7 @@ int initialFileSystem(char* args[]) {
 	return 0;
 }
 
+//copy external file to the V6 file system
 int copyIn(char* args[]) {
 	if(args[1] == NULL) {
 		printf("cannot find parameter\n");
@@ -1389,6 +1408,7 @@ int copyIn(char* args[]) {
 	return 0;
 }
 
+//copy file in the V6 file system to the external file system
 int copyOut(char* args[]) {
 	if(args[1] == NULL) {
 		printf("cannot find parameter\n");
@@ -1401,6 +1421,11 @@ int copyOut(char* args[]) {
 
 	if(inodeId == -1) {
 		printf("fail to find V6 file\n");
+		return -1;
+	}
+
+	if(getV6Type(inodeId) == I_DIRECTORY) {
+		printf("it is not a file\n");
 		return -1;
 	}
 
@@ -1446,6 +1471,7 @@ int copyOut(char* args[]) {
 	return 0;
 }
 
+//make a new directory in the current directory
 int makeDirectory(char* args[]) {
 	if(args[1] != NULL) {
 		if(createV6Directory(inodeIdOfurrentDirectory, args[1]) == -1) {
@@ -1458,6 +1484,7 @@ int makeDirectory(char* args[]) {
 	}
 }
 
+//remove file or directory
 int removeFile(char* args[]) {
 	if(args[1] == NULL) {
 		printf("fail to find argument\n");
@@ -1502,11 +1529,13 @@ int removeFile(char* args[]) {
 	return 0;
 }
 
+//terminate the program
 int quit(char* args[]) {
 	closeFile(args);
 	exit(0);
 }
 
+//change the current directory
 int changeDirectory(char* args[]) {
 	if(args[1] != NULL) {
 		if(changeV6Directory(args[1]) == -1) {
@@ -1519,6 +1548,7 @@ int changeDirectory(char* args[]) {
 	}
 }
 
+//list all the content in the current directory
 int list(char* args[]) {
 	int size;
 
@@ -1545,6 +1575,7 @@ int list(char* args[]) {
 	return 0;
 }
 
+//show content of super block or inode
 int show(char* args[]) {
 	int i;
 
@@ -1659,6 +1690,7 @@ int show(char* args[]) {
 	return 0;
 }
 
+//entry of program
 int main(int args, char* argv[]) {
 	char* command;
 	char** arg;
@@ -1671,23 +1703,23 @@ int main(int args, char* argv[]) {
 	pathOfCurrentDirectory[0] = '/';
 
 	printf("/////////////////////////////\n");
-    printf("////////// FSAccess /////////\n");
-    printf("/////////////////////////////\n");
+	printf("////////// FSAccess /////////\n");
+	printf("/////////////////////////////\n");
 
-    while(1) {
-    	printf("{FSAccess:%s} ", pathOfCurrentDirectory);
-    	command = scanCommand();
-    	arg = createArgs(command);
+	while(1) {
+		printf("{FSAccess:%s} ", pathOfCurrentDirectory);
+		command = scanCommand();
+		arg = createArgs(command);
 
-    	int i;
+		int i;
 
-    	for(i = 0; i < FUNC_LIST_SIZE; i++) {
-    		if(strcmp(functionList[i], arg[0]) == 0) {
-    			(*delegation[i])(arg);
-    			break;
-    		}
-    	}
-    }
+		for(i = 0; i < FUNC_LIST_SIZE; i++) {
+			if(strcmp(functionList[i], arg[0]) == 0) {
+				(*delegation[i])(arg);
+				break;
+			}
+		}
+	}
 
-    return 0;
+	return 0;
 }
