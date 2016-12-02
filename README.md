@@ -1,11 +1,9 @@
 # Unix-file-system-V6
 
-I use putty to test this code on csgrads1.utdallas.edu server
-Save this program in "fsaccess.c", then compile using:
-cc fsaccess.c
-To start the program, type ./a.out
+This is a customize V6 file system, which utilize the unused bit in the inode flag, expanding the max file size to 2^25 bytes.
 
-commmands:
+COMMANDS
+--
 load nameOfFileSystem
 	this command can load the existing file system
 	if the file doesn't exist, create a new file system with the name given
