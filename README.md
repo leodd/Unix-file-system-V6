@@ -3,7 +3,7 @@
 This is a customize V6 file system, which utilize the unused bit in the inode flag, expanding the max file size to 2^25 bytes.
 
 COMMANDS
---
+-
 load nameOfFileSystem
 
 	this command can load the existing file system
